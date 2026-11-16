@@ -30,3 +30,37 @@
 @media (max-width: 640px) { .entry { flex-direction: column; align-items: flex-start; } .card pre { padding: 14px; font-size: 13px; } .card header { padding: 10px 14px; } .toolbar { align-items: flex-start; flex-direction: column; } }
 
 @media (max-width: 640px) { .footer { > span { width: 100%; } :global(.btn) { width: auto; flex: 1; margin: 0; padding-inline: 8px; } } }
+.trace { --trace-input: #4883c9; --trace-context: #559975; --trace-model: #9471b9; --trace-call: #d68b28; --trace-result: #bd7820; }
+.traceScope { margin: 0 0 12px; color: var(--text-secondary); font-size: 12px; line-height: 1.7; }
+.traceOverview { display: flex; align-items: center; flex-wrap: wrap; gap: 3px; padding: 12px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-secondary); max-height: 112px; overflow: auto;
+  button { flex: 0 0 7px; height: 24px; padding: 0; border: 0; border-radius: 2px; background: var(--trace-context); cursor: pointer;
+    &[data-kind='input'] { background: var(--trace-input); } &[data-kind='model'] { background: var(--trace-model); } &[data-kind='call'] { background: var(--trace-call); } &[data-kind='result'] { background: var(--trace-result); }
+    &:hover, &:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+  }
+}
+.traceControls { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 0 8px; flex-wrap: wrap; }
+.traceFilters { display: flex; flex-wrap: wrap; gap: 4px; }
+.traceSearch { padding: 9px 12px; width: 220px; max-width: 100%; border: 1px solid var(--border-color); background: var(--bg-primary); border-radius: 8px; color: var(--text-primary); font: inherit; font-size: 13px; }
+.traceCounts { font-size: 12px; color: var(--text-secondary); margin: 10px 0 16px; }
+.traceRows { border-top: 1px solid var(--border-color); }
+.traceRow { display: grid; grid-template-columns: 32px minmax(0, 1fr); border-bottom: 1px solid var(--border-color); scroll-margin-top: 12px;
+  &:focus { outline: 2px solid var(--trace-input); outline-offset: -2px; }
+  details { min-width: 0; }
+  summary { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 10px 8px; list-style: none; cursor: pointer; }
+  summary::before { content: '▸'; color: var(--text-secondary); font-size: 12px; }
+  details[open] > summary::before { content: '▾'; }
+  summary::-webkit-details-marker { display: none; }
+  summary strong { flex-shrink: 0; font-size: 13px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+}
+.traceIndex { padding-top: 17px; font: 11px monospace; color: var(--text-secondary); text-align: center; }
+.traceBadge { color: var(--trace-context); background: color-mix(in srgb, var(--trace-context) 12%, transparent); padding: 4px 8px; border-radius: 5px; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.traceRow[data-kind='input'] .traceBadge { color: var(--trace-input); background: color-mix(in srgb, var(--trace-input) 12%, transparent); }
+.traceRow[data-kind='model'] .traceBadge { color: var(--trace-model); background: color-mix(in srgb, var(--trace-model) 12%, transparent); }
+.traceRow[data-kind='call'] .traceBadge, .traceRow[data-kind='result'] .traceBadge { color: var(--trace-call); background: color-mix(in srgb, var(--trace-call) 12%, transparent); }
+.traceTurn { font-size: 11px; color: var(--text-secondary); flex-shrink: 0; }
+.tracePreview { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; color: var(--text-secondary); }
+.traceDetail { padding: 8px 16px 20px; border-left: 2px solid var(--border-color); margin: 0 0 10px 8px;
+  pre { margin: 12px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 14px; line-height: 1.8; }
+  .codeFold { padding: 0; border: 1px solid var(--border-color); border-radius: 8px; margin-top: 12px; summary { background: var(--bg-secondary); padding: 10px; } pre { padding: 12px; font: 12px/1.7 monospace; max-height: 420px; overflow: auto; } }
+}
+@media(max-width: 640px) { .traceControls { align-items: stretch; } .traceSearch { width: 100%; } .traceRow { grid-template-columns: 24px minmax(0, 1fr); summary { gap: 6px; flex-wrap: wrap; } summary strong { max-width: 110px; } } .tracePreview { flex-basis: 100%; margin-left: 18px; } .traceDetail { padding: 6px 8px 12px; pre { font-size: 13px; } } }
