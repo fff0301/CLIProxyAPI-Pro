@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { proApiClient } from '@/pro/shared/proManagementTransport';
+import { RequestPrompt } from './RequestPrompt';
 import { modelAuditItems, resolveModelAudit } from '../modelAudit';
 import type { ReactNode } from 'react';
 import type { TFunction } from 'i18next';
@@ -134,36 +133,4 @@ export function RecentPattern({
       ))}
     </div>
   );
-}
-
-function RequestPrompt({ requestId, zh }: { requestId?: string; zh: boolean }) {
-  const [state, setState] = useState<{ content?: string; truncated?: boolean; error?: string; loading?: boolean }>({});
-  useEffect(() => { setState({}); }, [requestId]);
-  const load = async () => {
-    const revision = proApiClient.getConnectionRevision();
-    setState({ loading: true });
-    try {
-      const result = await proApiClient.get<{ content: string; truncated: boolean }>('/usage/prompt', { params: { request_id: requestId } });
-      proApiClient.assertConnectionRevision(revision);
-      setState(result);
-    } catch {
-      setState({ error: zh ? '内容已淘汰、尚未采集或读取失败。仅保留最新 50 条请求。' : 'Prompt expired, not captured, or unavailable. Only the newest 50 requests are retained.' });
-    }
-  };
-  const download = () => {
-    const url = URL.createObjectURL(new Blob([state.content || ''], { type: 'text/plain;charset=utf-8' }));
-    const link = document.createElement('a'); link.href = url; link.download = `prompt-${requestId}.txt`; link.click(); URL.revokeObjectURL(url);
-  };
-  return <section style={{ marginTop: 16 }}>
-    <strong>{zh ? '请求 Prompt' : 'Request prompt'}</strong>
-    <p>{zh ? '保留最新 50 条，每条最多 1 MiB；图片、音频和文件内容以占位符显示。' : 'Newest 50 requests, up to 1 MiB each. Media is replaced with placeholders.'}</p>
-    <button type="button" onClick={load} disabled={!requestId || state.loading}>{state.loading ? (zh ? '读取中…' : 'Loading…') : (zh ? '查看 Prompt' : 'View prompt')}</button>
-    {state.content && <>
-      <button type="button" onClick={() => navigator.clipboard.writeText(state.content || '')}>{zh ? '复制' : 'Copy'}</button>
-      <button type="button" onClick={download}>{zh ? '下载' : 'Download'}</button>
-      {state.truncated && <p role="status">{zh ? '超过 1 MiB，内容已截断。' : 'Content truncated at 1 MiB.'}</p>}
-      <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '50vh', overflow: 'auto', padding: 12, background: 'var(--bg-tertiary, #eee)', color: 'var(--text-primary, #222)' }}>{state.content}</pre>
-    </>}
-    {state.error && <p role="status">{state.error}</p>}
-  </section>;
 }
