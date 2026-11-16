@@ -5,7 +5,7 @@ import { proApiClient } from '@/pro/shared/proManagementTransport';
 import styles from './RequestPrompt.module.scss';
 
 type Prompt = { content: string; truncated: boolean; size_bytes?: number };
-type Section = { role: string; text: string; meta?: string };
+type Section = { role: string; text: string; meta?: string; toolCalls?: string };
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 const pretty = (value: unknown): string => typeof value === 'string' ? value : JSON.stringify(value, null, 2) ?? '';
 
@@ -36,9 +36,8 @@ function parsePrompt(content: string): { sections: Section[]; model: string; par
       if (typeof item === 'string') { sections.push({ role: 'user', text: item }); continue; }
       if (!object(item)) continue;
       const role = String(item.role || item.type || 'message');
-      let text = contentText(item.content ?? item.parts ?? item.text ?? item);
-      if (item.tool_calls) text += '\n\n' + pretty(item.tool_calls);
-      sections.push({ role, text, meta: typeof item.name === 'string' ? item.name : undefined });
+      const text = contentText(item.content ?? item.parts ?? item.text ?? (item.tool_calls ? '' : item));
+      sections.push({ role, text, meta: typeof item.name === 'string' ? item.name : undefined, toolCalls: item.tool_calls ? pretty(item.tool_calls) : undefined });
     }
     if (data.tools) sections.push({ role: 'tools', text: pretty(data.tools) });
     const excluded = new Set(['messages', 'contents', 'input', 'instructions', 'system', 'systemInstruction', 'system_instruction', 'tools', 'model']);
@@ -54,6 +53,46 @@ function parsePrompt(content: string): { sections: Section[]; model: string; par
   }
 }
 
+type TextBlock = { text: string; code: boolean; language?: string };
+
+function splitCodeBlocks(text: string): TextBlock[] {
+  const blocks: TextBlock[] = [];
+  const lines = text.split('\n');
+  let prose: string[] = [];
+  const flush = () => {
+    if (prose.length) blocks.push({ text: prose.join('\n'), code: false });
+    prose = [];
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const fence = lines[i].match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
+    if (!fence) { prose.push(lines[i]); continue; }
+    flush();
+    const code: string[] = [];
+    const closing = new RegExp(`^\\s{0,3}${fence[1][0]}{${fence[1].length},}\\s*$`);
+    for (i++; i < lines.length && !closing.test(lines[i]); i++) code.push(lines[i]);
+    blocks.push({ code: true, language: fence[2].trim().slice(0, 40), text: code.join('\n') });
+  }
+  flush();
+  if (blocks.length === 1 && !blocks[0].code && /^[\s]*[{[]/.test(text)) {
+    try { JSON.parse(text); return [{ code: true, language: 'JSON', text }]; } catch { /* Keep ordinary prose visible. */ }
+  }
+  return blocks;
+}
+
+function FoldedCode({ text, label, zh }: { text: string; label?: string; zh: boolean }) {
+  return <details className={styles.codeFold}>
+    <summary><span>{label || (zh ? '代码' : 'Code')}</span><small>{text.split('\n').length} {zh ? '行 · 点击展开 / 收起' : 'lines · Expand / collapse'}</small></summary>
+    <pre>{text}</pre>
+  </details>;
+}
+
+function ReadableContent({ text, zh }: { text: string; zh: boolean }) {
+  const blocks = useMemo(() => splitCodeBlocks(text), [text]);
+  return <div className={styles.messageContent}>{blocks.map((block, index) => block.code
+    ? <FoldedCode key={index} text={block.text} zh={zh} label={block.language ? `${zh ? '代码' : 'Code'} · ${block.language}` : undefined} />
+    : block.text.trim() ? <pre key={index}>{block.text}</pre> : null)}</div>;
+}
+
 export function RequestPrompt({ requestId, zh }: { requestId?: string; zh: boolean }) {
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState<Prompt>();
@@ -65,7 +104,7 @@ export function RequestPrompt({ requestId, zh }: { requestId?: string; zh: boole
   useEffect(() => { generation.current++; setPrompt(undefined); setOpen(false); setError(''); setLoading(false); setRaw(false); return () => { generation.current++; }; }, [requestId]);
   const view = useMemo(() => parsePrompt(prompt?.content || ''), [prompt?.content]);
   const labels: Record<string, string> = { system: zh ? '系统提示词' : 'System', developer: zh ? '开发者指令' : 'Developer', user: zh ? '用户消息' : 'User', assistant: zh ? '助手消息' : 'Assistant', model: zh ? '助手消息' : 'Assistant', tool: zh ? '工具结果' : 'Tool result', tools: zh ? '工具定义' : 'Tool definitions', text: zh ? '提示词正文' : 'Prompt text' };
-  const readable = view.sections.map((section, index) => `[${index + 1} · ${labels[section.role] || section.role}]\n${section.text}`).join('\n\n');
+  const readable = view.sections.map((section, index) => `[${index + 1} · ${labels[section.role] || section.role}]\n${section.text}${section.toolCalls ? `\n\n${section.toolCalls}` : ''}`).join('\n\n');
   const load = async () => {
     setOpen(true);
     if (prompt || loading) return;
@@ -107,7 +146,10 @@ export function RequestPrompt({ requestId, zh }: { requestId?: string; zh: boole
           {raw ? <pre className={styles.raw}>{view.raw}</pre> : <>
             {view.sections.map((section, index) => <article className={styles.card} key={index} data-role={section.role}>
               <header><span className={styles.number}>{String(index + 1).padStart(2, '0')}</span><strong>{labels[section.role] || section.role}</strong>{section.meta && <span>{section.meta}</span>}</header>
-              {section.role === 'tools' ? <details><summary>{zh ? '展开工具定义' : 'Expand tool definitions'}</summary><pre>{section.text}</pre></details> : <pre>{section.text}</pre>}
+              {section.role === 'tools' ? <FoldedCode text={section.text} zh={zh} label={zh ? '工具定义' : 'Tool definitions'} />
+                : ['tool', 'function_call', 'function_call_output'].includes(section.role) ? <FoldedCode text={section.text} zh={zh} label={zh ? '工具调用 / 结果' : 'Tool call / result'} />
+                  : <ReadableContent text={section.text} zh={zh} />}
+              {section.toolCalls && <FoldedCode text={section.toolCalls} zh={zh} label={zh ? '工具调用参数' : 'Tool call arguments'} />}
             </article>)}
             {view.parameters && <details className={styles.parameters}><summary>{zh ? '请求参数' : 'Request parameters'}</summary><pre>{view.parameters}</pre></details>}
           </>}
