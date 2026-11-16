@@ -2674,9 +2674,11 @@ replace_once(responses_websocket_forward,
     '\t\t\treturn completeResponsesWebsocketLocalInterrupt(writer,')
 replace_once(responses_websocket_forward,
     '\t\t\t\t\tif !turnEnded {\n'
+    '\t\t\t\t\t\tmarkDownstreamCommitted()\n'
     '\t\t\t\t\t\treturn completeResponsesWebsocketLocalInterrupt(writer,',
     '\t\t\t\t\tactive, _ := opts.localInterrupt.classify(interruptPayload)\n'
     '\t\t\t\t\tif !turnEnded && active {\n'
+    '\t\t\t\t\t\tmarkDownstreamCommitted()\n'
     '\t\t\t\t\t\topts.localInterrupt.completeInterrupt(interruptPayload)\n'
     '\t\t\t\t\t\treturn completeResponsesWebsocketLocalInterrupt(writer,')
 replace_once(ROOT / 'sdk/api/handlers/openai/openai_responses_websocket_forward.go',
@@ -2764,7 +2766,10 @@ queue_go_source('sdk/api/handlers/openai/responses_websocket_terminal_order_test
 queue_go_source('sdk/api/handlers/openai/responses_interrupt_lifecycle_test.go')
 
 realtime_websocket_source = ROOT / 'internal/client/codex/live/websocket.go'
-add_go_import(realtime_websocket_source, '\t"encoding/json"\n', '\t"errors"\n')
+realtime_websocket_text = read(realtime_websocket_source)
+realtime_json_import = ('\t"encoding/json"\n' if '\t"encoding/json"\n' in realtime_websocket_text
+    else '\t"github.com/MoeForge/moego/json"\n')
+add_go_import(realtime_websocket_source, realtime_json_import, '\t"errors"\n')
 add_go_import(realtime_websocket_source, '\t"errors"\n', '\t"fmt"\n')
 add_go_import(realtime_websocket_source, '\t"strings"\n', '\t"sync"\n')
 add_go_import(realtime_websocket_source, '\t"sync"\n', '\t"time"\n')
