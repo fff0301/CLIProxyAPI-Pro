@@ -995,6 +995,9 @@ export function MonitoringCenterPage() {
               {formatDurationMs(row.latencyMs, { locale: i18n.language })}
             </small>
           </span>
+          <span title="Estimated output throughput; excludes first-token wait when available">
+            <small>tok/s</small><strong>{row.outputTPS == null ? '—' : `≈ ${row.outputTPS.toFixed(1)}`}</strong>
+          </span>
         </div>
       ),
     },

@@ -186,6 +186,9 @@ export interface UsageDetail {
   user_agent?: string;
   latency_ms?: number;
   ttft_ms?: number;
+  request_id?: string;
+  output_tps?: number;
+  output_tps_kind?: string;
   status_code?: number;
   error_code?: string;
   error_message?: string;
@@ -531,6 +534,9 @@ const buildUsageDetail = (
 
   return {
     timestamp,
+    request_id: typeof detailRaw.request_id === 'string' ? detailRaw.request_id : undefined,
+    output_tps: extractNonNegativeNumberField(detailRaw, ['output_tps']) ?? undefined,
+    output_tps_kind: typeof detailRaw.output_tps_kind === 'string' ? detailRaw.output_tps_kind : undefined,
     source: normalizeSourceWithCache(sourceCache, detailRaw.source),
     auth_index: (detailRaw.auth_index ??
       detailRaw.authIndex ??

@@ -2360,6 +2360,7 @@ replace_once(
 )
 
 server_middleware_source = ROOT / 'internal/api/server_middleware.go'
+add_go_import(server_middleware_source, 'codexlive "' + import_path('internal/client/codex/live') + '"\n', '\tobservability "' + import_path('internal/pro/observability') + '"\n')
 add_go_import(server_middleware_source, 'codexlive "' + import_path('internal/client/codex/live') + '"\n', '\tapikeypolicy "' + import_path('internal/pro/apikeypolicy') + '"\n')
 for old, new in (
     ('func AuthMiddleware(manager *sdkaccess.Manager)', 'func AuthMiddleware(manager *sdkaccess.Manager, policy *apikeypolicy.Service)'),
@@ -2418,6 +2419,7 @@ replace_all_exact(
 \t\t\t\t\tc.Request = c.Request.WithContext(requestCtx)
 \t\t\t\t}
 \t\t\t}
+\t\t\tobservability.CapturePrompt(c)
 \t\t\tmiddleware.CaptureAuthenticatedRequestBody(c)
 \t\t\tif c.IsAborted() {
 \t\t\t\treturn

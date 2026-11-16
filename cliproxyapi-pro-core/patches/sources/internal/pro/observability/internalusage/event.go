@@ -57,6 +57,8 @@ type Event struct {
 	UnclassifiedTokens   int64                    `json:"unclassified_tokens,omitempty"`
 	TokenBreakdown       coreusage.TokenBreakdown `json:"token_breakdown"`
 	LatencyMS            *int64                   `json:"latency_ms,omitempty"`
+	OutputTPS            *float64                 `json:"output_tps,omitempty"`
+	OutputTPSKind        string                   `json:"output_tps_kind,omitempty"`
 	TTFTMS               *int64                   `json:"ttft_ms,omitempty"`
 	StatusCode           *int                     `json:"status_code,omitempty"`
 	ErrorCode            string                   `json:"error_code,omitempty"`
@@ -114,6 +116,8 @@ type Detail struct {
 	Alias                string                   `json:"alias,omitempty"`
 	AuthType             string                   `json:"auth_type,omitempty"`
 	LatencyMS            *int64                   `json:"latency_ms,omitempty"`
+	OutputTPS            *float64                 `json:"output_tps,omitempty"`
+	OutputTPSKind        string                   `json:"output_tps_kind,omitempty"`
 	TTFTMS               *int64                   `json:"ttft_ms,omitempty"`
 	StatusCode           *int                     `json:"status_code,omitempty"`
 	ErrorCode            string                   `json:"error_code,omitempty"`
@@ -384,6 +388,8 @@ func BuildPayload(events []Event) Payload {
 			AuthType:             event.AuthType,
 			LatencyMS:            event.LatencyMS,
 			TTFTMS:               event.TTFTMS,
+			OutputTPS:            event.OutputTPS,
+			OutputTPSKind:        event.OutputTPSKind,
 			StatusCode:           event.StatusCode,
 			ErrorCode:            event.ErrorCode,
 			ErrorMessage:         event.ErrorMessage,

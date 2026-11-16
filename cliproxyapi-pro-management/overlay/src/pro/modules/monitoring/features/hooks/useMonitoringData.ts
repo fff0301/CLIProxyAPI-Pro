@@ -147,6 +147,9 @@ export type MonitoringEventRow = {
   statsIncluded: boolean;
   latencyMs: number | null;
   ttftMs: number | null;
+  requestId?: string;
+  outputTPS?: number;
+  outputTPSKind?: string;
   statusCode: number | null;
   errorCode: string;
   errorMessage: string;
@@ -512,6 +515,9 @@ const buildEventRows = (
       statsIncluded: true,
       latencyMs: typeof detail.latency_ms === 'number' ? detail.latency_ms : null,
       ttftMs: typeof detail.ttft_ms === 'number' ? detail.ttft_ms : null,
+      requestId: detail.request_id,
+      outputTPS: detail.output_tps,
+      outputTPSKind: detail.output_tps_kind,
       statusCode: typeof detail.status_code === 'number' ? detail.status_code : null,
       errorCode: detail.error_code || '',
       errorMessage: detail.error_message || '',

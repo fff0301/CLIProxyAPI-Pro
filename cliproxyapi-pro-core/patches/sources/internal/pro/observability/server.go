@@ -182,6 +182,7 @@ func (s *Server) RegisterGinRoutes(group *gin.RouterGroup) {
 	group.POST("/reset", s.handleUsageReset)
 	group.GET("/status", s.handleStatus)
 	group.GET("/events", s.handleUsageEvents)
+	group.GET("/prompt", s.handleRequestPrompt)
 	group.GET("/aggregates", s.handleUsageAggregates)
 	group.GET("/account", s.handleAccountUsage)
 	group.GET("/stream", s.handleUsageStream)

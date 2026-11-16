@@ -510,6 +510,8 @@ func (s *Store) notifyEventsChanged() {
 
 func (s *Store) init() error {
 	statements := []string{
+		`create table if not exists request_prompts (request_id text primary key, captured_at_ms integer not null, content text not null, truncated integer not null, size_bytes integer not null)`,
+		`create index if not exists idx_request_prompts_recent on request_prompts(captured_at_ms desc, request_id desc)`,
 		`pragma journal_mode = WAL`,
 		`pragma synchronous = FULL`,
 		`pragma busy_timeout = 5000`,
@@ -708,6 +710,8 @@ func (s *Store) init() error {
 		return err
 	}
 	alterations := []string{
+		`alter table usage_events add column output_tps real`,
+		`alter table usage_events add column output_tps_kind text`,
 		`alter table usage_events add column ttft_ms integer`,
 		`alter table usage_events add column status_code integer`,
 		`alter table usage_events add column error_code text`,
@@ -949,8 +953,8 @@ func (s *Store) insertEvents(ctx context.Context, events []internalusage.Event) 
 		input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_tokens, cache_read_tokens, cache_write_tokens, total_tokens,
 		accounting_version, accounting_quality, uncached_input_tokens, unclassified_tokens, token_breakdown_json,
 		latency_ms, ttft_ms, status_code, error_code, error_message, upstream_request_id, retry_after, attempt_index, stream, reasoning_effort, service_tier, effective_service_tier, speed, effective_speed,
-		estimated_cost, price_rule_id, cost_breakdown_json, failed, raw_json, created_at_ms
-	) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		estimated_cost, price_rule_id, cost_breakdown_json, failed, raw_json, created_at_ms, output_tps, output_tps_kind
+	) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return InsertResult{}, err
 	}
@@ -961,6 +965,7 @@ func (s *Store) insertEvents(ctx context.Context, events []internalusage.Event) 
 	latestInsertedID := int64(0)
 	for _, event := range events {
 		event = internalusage.NormalizeEventAccounting(event)
+		event.OutputTPS, event.OutputTPSKind = calculateOutputTPS(event)
 		breakdownJSON, err := marshalTokenBreakdown(event)
 		if err != nil {
 			return InsertResult{}, err
@@ -986,7 +991,7 @@ func (s *Store) insertEvents(ctx context.Context, events []internalusage.Event) 
 			event.InputTokens, event.OutputTokens, event.ReasoningTokens, event.CachedTokens, event.CacheTokens, event.CacheReadTokens, event.CacheWriteTokens, event.TotalTokens,
 			event.AccountingVersion, nullString(event.AccountingQuality), event.UncachedInputTokens, event.UnclassifiedTokens, nullString(breakdownJSON),
 			nullInt64(event.LatencyMS), nullInt64(event.TTFTMS), nullInt(event.StatusCode), nullString(event.ErrorCode), nullString(event.ErrorMessage), nullString(event.UpstreamRequestID), nullString(event.RetryAfter), nullInt64(event.AttemptIndex), boolToInt(event.Stream), nullString(event.ReasoningEffort), nullString(event.ServiceTier), nullString(event.EffectiveServiceTier), nullString(event.Speed), nullString(event.EffectiveSpeed),
-			nullFloat64(event.EstimatedCost), nullPositiveInt64(event.PriceRuleID), nullString(event.CostBreakdownJSON), failed, nullString(event.RawJSON), event.CreatedAtMS,
+			nullFloat64(event.EstimatedCost), nullPositiveInt64(event.PriceRuleID), nullString(event.CostBreakdownJSON), failed, nullString(event.RawJSON), event.CreatedAtMS, nullFloat64(event.OutputTPS), nullString(event.OutputTPSKind),
 		)
 		if err != nil {
 			return InsertResult{}, err
@@ -1178,7 +1183,8 @@ func (s *Store) scanEvents(rows *sql.Rows) ([]internalusage.Event, error) {
 		var latency, ttft, attemptIndex sql.NullInt64
 		var statusCode sql.NullInt64
 		var errorCode, errorMessage, upstreamRequestID, retryAfter, reasoningEffort, serviceTier, effectiveServiceTier, speed, effectiveSpeed, costBreakdown, accountingQuality, tokenBreakdownJSON sql.NullString
-		var estimatedCost sql.NullFloat64
+		var estimatedCost, outputTPS sql.NullFloat64
+		var outputTPSKind sql.NullString
 		var priceRuleID sql.NullInt64
 		var stream, failed int
 		if err := rows.Scan(
@@ -1187,10 +1193,14 @@ func (s *Store) scanEvents(rows *sql.Rows) ([]internalusage.Event, error) {
 			&event.InputTokens, &event.OutputTokens, &event.ReasoningTokens, &event.CachedTokens, &event.CacheTokens, &event.CacheReadTokens, &event.CacheWriteTokens, &event.TotalTokens,
 			&event.AccountingVersion, &accountingQuality, &event.UncachedInputTokens, &event.UnclassifiedTokens, &tokenBreakdownJSON,
 			&latency, &ttft, &statusCode, &errorCode, &errorMessage, &upstreamRequestID, &retryAfter, &attemptIndex, &stream, &reasoningEffort, &serviceTier, &effectiveServiceTier, &speed, &effectiveSpeed,
-			&estimatedCost, &priceRuleID, &costBreakdown, &failed, &rawJSON, &event.CreatedAtMS,
+			&estimatedCost, &priceRuleID, &costBreakdown, &failed, &rawJSON, &event.CreatedAtMS, &outputTPS, &outputTPSKind,
 		); err != nil {
 			return nil, err
 		}
+		if outputTPS.Valid {
+			event.OutputTPS = &outputTPS.Float64
+		}
+		event.OutputTPSKind = outputTPSKind.String
 		event.RequestID = requestID.String
 		event.Provider = provider.String
 		event.ExecutorType = executorType.String
@@ -1272,7 +1282,7 @@ func (s *Store) recentEventsFrom(ctx context.Context, queryer sqlQueryer, limit 
 		input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_tokens, cache_read_tokens, cache_write_tokens, total_tokens,
 		accounting_version, accounting_quality, uncached_input_tokens, unclassified_tokens, token_breakdown_json,
 		latency_ms, ttft_ms, status_code, error_code, error_message, upstream_request_id, retry_after, attempt_index, stream, reasoning_effort, service_tier, effective_service_tier, speed, effective_speed,
-		estimated_cost, price_rule_id, cost_breakdown_json, failed, raw_json, created_at_ms
+		estimated_cost, price_rule_id, cost_breakdown_json, failed, raw_json, created_at_ms, output_tps, output_tps_kind
 		from usage_events indexed by idx_usage_events_recent
 		order by timestamp_ms desc, id desc
 		limit ?`, limit)
@@ -1293,7 +1303,7 @@ func (s *Store) EventsAfter(ctx context.Context, afterID int64, limit int) ([]in
 		input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_tokens, cache_read_tokens, cache_write_tokens, total_tokens,
 		accounting_version, accounting_quality, uncached_input_tokens, unclassified_tokens, token_breakdown_json,
 		latency_ms, ttft_ms, status_code, error_code, error_message, upstream_request_id, retry_after, attempt_index, stream, reasoning_effort, service_tier, effective_service_tier, speed, effective_speed,
-		estimated_cost, price_rule_id, cost_breakdown_json, failed, raw_json, created_at_ms
+		estimated_cost, price_rule_id, cost_breakdown_json, failed, raw_json, created_at_ms, output_tps, output_tps_kind
 		from usage_events
 		where id > ?
 		order by id asc
@@ -1451,7 +1461,7 @@ func (s *Store) QueryEvents(ctx context.Context, options UsageEventQueryOptions)
 		input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_tokens, cache_read_tokens, cache_write_tokens, total_tokens,
 		accounting_version, accounting_quality, uncached_input_tokens, unclassified_tokens, token_breakdown_json,
 		latency_ms, ttft_ms, status_code, error_code, error_message, upstream_request_id, retry_after, attempt_index, stream, reasoning_effort, service_tier, effective_service_tier, speed, effective_speed,
-		estimated_cost, price_rule_id, cost_breakdown_json, failed, raw_json, created_at_ms
+		estimated_cost, price_rule_id, cost_breakdown_json, failed, raw_json, created_at_ms, output_tps, output_tps_kind
 		from usage_events` + usageEventQueryWhere(queryWheres) + `
 		order by timestamp_ms desc, id desc
 		limit ?`
@@ -2373,6 +2383,9 @@ func (s *Store) ResetUsageStatistics(ctx context.Context) (UsageResetResult, err
 
 	resetRequired := deletedEvents > 0 || deletedAuthRuntimeStats > 0
 	if deletedEvents > 0 {
+		if _, err := tx.ExecContext(ctx, `delete from request_prompts`); err != nil {
+			return UsageResetResult{}, err
+		}
 		if _, err := tx.ExecContext(ctx, `delete from usage_events`); err != nil {
 			return UsageResetResult{}, err
 		}
