@@ -710,6 +710,11 @@ func (s *Store) init() error {
 		return err
 	}
 	alterations := []string{
+		`alter table request_prompts add column response_content text`,
+		`alter table request_prompts add column response_type text`,
+		`alter table request_prompts add column response_status integer`,
+		`alter table request_prompts add column response_truncated integer not null default 0`,
+		`alter table request_prompts add column response_state text`,
 		`alter table usage_events add column output_tps real`,
 		`alter table usage_events add column output_tps_kind text`,
 		`alter table usage_events add column ttft_ms integer`,

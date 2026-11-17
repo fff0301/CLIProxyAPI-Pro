@@ -234,8 +234,11 @@ func (s *Server) handleRequestPrompt(c *gin.Context) {
 		return
 	}
 	var content string
+	var response, responseType, responseState sql.NullString
+	var responseStatus sql.NullInt64
+	var responseTruncated int
 	var truncated, size int
-	err := s.store.executor(c.Request.Context()).QueryRowContext(c.Request.Context(), `select content,truncated,size_bytes from request_prompts where request_id=?`, id).Scan(&content, &truncated, &size)
+	err := s.store.executor(c.Request.Context()).QueryRowContext(c.Request.Context(), `select content,truncated,size_bytes,response_content,response_type,response_status,response_truncated,response_state from request_prompts where request_id=?`, id).Scan(&content, &truncated, &size, &response, &responseType, &responseStatus, &responseTruncated, &responseState)
 	if err == sql.ErrNoRows {
 		c.JSON(404, gin.H{"error": "Prompt unavailable: only the newest 50 requests are retained."})
 		return
@@ -245,5 +248,5 @@ func (s *Server) handleRequestPrompt(c *gin.Context) {
 		return
 	}
 	c.Header("Cache-Control", "no-store")
-	c.JSON(200, gin.H{"request_id": id, "content": content, "truncated": truncated != 0, "size_bytes": size})
+	c.JSON(200, gin.H{"request_id": id, "content": content, "truncated": truncated != 0, "size_bytes": size, "response_content": response.String, "response_type": responseType.String, "response_status": responseStatus.Int64, "response_truncated": responseTruncated != 0, "response_state": responseState.String})
 }

@@ -1,5 +1,5 @@
 export type TraceKind = 'input' | 'context' | 'model' | 'call' | 'result' | 'other';
-export type TraceEvent = { id: string; kind: TraceKind; role: string; text: string; name?: string; callId?: string; linkedId?: string; turn: number };
+export type TraceEvent = { id: string; kind: TraceKind; role: string; text: string; name?: string; callId?: string; linkedId?: string; turn: number; current?: boolean };
 export type Trace = { events: TraceEvent[]; parsed: boolean; model: string; toolCount: number };
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const show = (v: unknown): string => typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v, null, 2);
@@ -14,7 +14,7 @@ const readText = (v: unknown): string => {
   return show(v);
 };
 
-export function buildPromptTrace(content: string): Trace {
+export function buildPromptTrace(content: string, responseMessages: unknown[] = []): Trace {
   let data: unknown;
   try { data = JSON.parse(content); } catch { return { events: [], parsed: false, model: '', toolCount: 0 }; }
   if (!record(data)) return { events: [], parsed: false, model: '', toolCount: 0 };
@@ -67,6 +67,9 @@ export function buildPromptTrace(content: string): Trace {
   };
   const messages = data.messages ?? data.contents ?? data.input ?? data.prompt;
   if (Array.isArray(messages)) messages.forEach(walkItem); else if (typeof messages === 'string') walkItem(messages);
+  const historyLength = events.length;
+  responseMessages.forEach(walkItem);
+  events.slice(historyLength).forEach(event => { event.current = true; });
   // Only IDs establish a link: parallel same-name calls must never be paired by guesswork.
   const calls = new Map<string, TraceEvent>();
   for (const event of events) {

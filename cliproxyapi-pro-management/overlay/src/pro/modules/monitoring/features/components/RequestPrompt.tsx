@@ -3,9 +3,10 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { proApiClient } from '@/pro/shared/proManagementTransport';
 import styles from './RequestPrompt.module.scss';
+import { parseSavedResponse, type SavedResponse } from './promptResponse';
 import { buildPromptTrace, type TraceKind } from './promptTrace';
 
-type Prompt = { content: string; truncated: boolean; size_bytes?: number };
+type Prompt = { content: string; truncated: boolean; size_bytes?: number } & SavedResponse;
 type Section = { role: string; text: string; meta?: string; toolCalls?: string };
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 const pretty = (value: unknown): string => typeof value === 'string' ? value : JSON.stringify(value, null, 2) ?? '';
@@ -94,8 +95,8 @@ function ReadableContent({ text, zh }: { text: string; zh: boolean }) {
     : block.text.trim() ? <pre key={index}>{block.text}</pre> : null)}</div>;
 }
 
-function PromptTrace({ content, zh }: { content: string; zh: boolean }) {
-  const trace = useMemo(() => buildPromptTrace(content), [content]);
+function PromptTrace({ content, response, zh }: { content: string; response: Prompt; zh: boolean }) {
+  const trace = useMemo(() => buildPromptTrace(content, parseSavedResponse(response)), [content, response]);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const labels: Record<TraceKind, string> = { input: zh ? '用户输入' : 'User input', context: zh ? '上下文' : 'Context', model: zh ? 'LLM 输出' : 'LLM output', call: zh ? '工具调用' : 'Tool call', result: zh ? '工具输出' : 'Tool output', other: zh ? '其他消息' : 'Other' };
@@ -104,7 +105,7 @@ function PromptTrace({ content, zh }: { content: string; zh: boolean }) {
   if (!trace.parsed) return <p className={styles.notice}>{zh ? '当前内容不完整或不含可识别的消息结构，请使用分段阅读查看已保存的文字。' : 'No complete message structure available. Use Readable to inspect the retained text.'}</p>;
   const focusEvent = (id: string) => { const element = document.getElementById(id); element?.scrollIntoView({ behavior: 'smooth', block: 'center' }); element?.focus({ preventScroll: true }); };
   return <div className={styles.trace}>
-    <p className={styles.traceScope}>{zh ? '按本次请求携带的历史消息排列；不含本次请求的新回复，也不代表实际耗时。' : 'Ordered history included in this request. Excludes the new response and does not represent timing.'}</p>
+    <p className={styles.traceScope}>{zh ? '历史消息按顺序排列，本次实际回复追加在末尾；彩条表示顺序，不代表耗时。' : 'Ordered history followed by the captured response. Bars show order, not timing.'}</p>
     <div className={styles.traceOverview} aria-label={zh ? '消息顺序概览' : 'Message sequence'}>{trace.events.map((event, index) => <button key={event.id} type="button" data-kind={event.kind} aria-label={`${index + 1} · ${labels[event.kind]}`} title={`${index + 1} · ${labels[event.kind]} ${event.name || ''}`} onClick={() => { setFilter('all'); setSearch(''); window.setTimeout(() => focusEvent(event.id), 0); }} />)}</div>
     <div className={styles.traceControls}>
       <div className={styles.traceFilters}>{[['all', zh ? '全部' : 'All'], ['input', zh ? '输入' : 'Input'], ['model', 'LLM'], ['tools', zh ? '工具' : 'Tools'], ['context', zh ? '上下文' : 'Context']].map(([key, title]) => <Button key={key} size="sm" variant={filter === key ? 'primary' : 'ghost'} onClick={() => setFilter(key)}>{title}</Button>)}</div>
@@ -115,7 +116,7 @@ function PromptTrace({ content, zh }: { content: string; zh: boolean }) {
       {visible.map(event => <div className={styles.traceRow} data-kind={event.kind} id={event.id} tabIndex={-1} key={event.id}>
         <span className={styles.traceIndex}>{Number(event.id.slice(6)) + 1}</span>
         <details>
-          <summary><span className={styles.traceBadge}>{labels[event.kind]}</span><span className={styles.traceTurn}>{event.turn ? `${zh ? '轮次' : 'Turn'} ${event.turn}` : '—'}</span>{event.name && <strong>{event.name}</strong>}<span className={styles.tracePreview}>{event.text.replace(/\s+/g, ' ').slice(0, 220) || (zh ? '仅工具调用' : 'Tool call only')}</span></summary>
+          <summary><span className={styles.traceBadge}>{event.current ? (zh ? '本次回复 · ' : 'Current · ') : ''}{labels[event.kind]}</span><span className={styles.traceTurn}>{event.turn ? `${zh ? '轮次' : 'Turn'} ${event.turn}` : '—'}</span>{event.name && <strong>{event.name}</strong>}<span className={styles.tracePreview}>{event.text.replace(/\s+/g, ' ').slice(0, 220) || (zh ? '仅工具调用' : 'Tool call only')}</span></summary>
           <div className={styles.traceDetail}>
             {event.callId && <div className={styles.meta}>Call ID: {event.callId}</div>}
             {event.linkedId && <Button size="sm" variant="ghost" onClick={() => { setFilter('all'); setSearch(''); window.setTimeout(() => focusEvent(event.linkedId!), 0); }}>{event.kind === 'call' ? (zh ? '定位工具输出' : 'Find result') : (zh ? '定位工具调用' : 'Find call')}</Button>}
@@ -141,10 +142,13 @@ export function RequestPrompt({ requestId, zh }: { requestId?: string; zh: boole
   useEffect(() => { generation.current++; setPrompt(undefined); setOpen(false); setError(''); setLoading(false); setRaw(false); return () => { generation.current++; }; }, [requestId]);
   const view = useMemo(() => parsePrompt(prompt?.content || ''), [prompt?.content]);
   const labels: Record<string, string> = { system: zh ? '系统提示词' : 'System', developer: zh ? '开发者指令' : 'Developer', user: zh ? '用户消息' : 'User', assistant: zh ? '助手消息' : 'Assistant', model: zh ? '助手消息' : 'Assistant', tool: zh ? '工具结果' : 'Tool result', tools: zh ? '工具定义' : 'Tool definitions', text: zh ? '提示词正文' : 'Prompt text' };
+  const responseMessages = useMemo(() => parseSavedResponse(prompt || {}), [prompt]);
+  const responseText = responseMessages.map(message => contentText(message.content) + (message.tool_calls ? '\n' + pretty(message.tool_calls) : '')).join('\n\n');
+  const rawText = prompt?.response_state ? pretty({ request: (() => { try { return JSON.parse(prompt.content); } catch { return prompt.content; } })(), response: { state: prompt.response_state, status: prompt.response_status, content_type: prompt.response_type, content: prompt.response_content } }) : view.raw;
   const readable = view.sections.map((section, index) => `[${index + 1} · ${labels[section.role] || section.role}]\n${section.text}${section.toolCalls ? `\n\n${section.toolCalls}` : ''}`).join('\n\n');
   const load = async () => {
     setOpen(true);
-    if (prompt || loading) return;
+    if (prompt?.response_state || loading) return;
     const current = ++generation.current;
     const revision = proApiClient.getConnectionRevision();
     setLoading(true); setError('');
@@ -156,9 +160,9 @@ export function RequestPrompt({ requestId, zh }: { requestId?: string; zh: boole
       if (current === generation.current) setError(zh ? '内容已淘汰、尚未采集或读取失败。仅保留最新 50 条请求。' : 'Prompt expired, not captured, or unavailable. Only the newest 50 requests are retained.');
     } finally { if (current === generation.current) setLoading(false); }
   };
-  const copy = async () => { try { await navigator.clipboard.writeText(raw ? view.raw : readable); setCopied(true); } catch { setError(zh ? '复制失败，请使用下载。' : 'Copy failed. Please download instead.'); } };
+  const copy = async () => { try { await navigator.clipboard.writeText(raw ? rawText : readable + (responseText ? `\n\n[${zh ? '本次回复' : 'Current response'}]\n${responseText}` : '')); setCopied(true); } catch { setError(zh ? '复制失败，请使用下载。' : 'Copy failed. Please download instead.'); } };
   const download = () => {
-    const url = URL.createObjectURL(new Blob([raw ? view.raw : readable], { type: 'text/plain;charset=utf-8' }));
+    const url = URL.createObjectURL(new Blob([raw ? rawText : readable + (responseText ? `\n\n[${zh ? '本次回复' : 'Current response'}]\n${responseText}` : '')], { type: 'text/plain;charset=utf-8' }));
     const link = document.createElement('a'); link.href = url; link.download = `prompt-${requestId}.${raw ? 'json' : 'txt'}`; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   return <section className={styles.entry}>
@@ -178,9 +182,11 @@ export function RequestPrompt({ requestId, zh }: { requestId?: string; zh: boole
           <span className={styles.meta}>{view.model} {view.sections.length ? `· ${view.sections.length} ${zh ? '个区块' : 'sections'}` : ''}</span>
         </div>
         {prompt.truncated && <p className={styles.notice}>{zh ? '内容超过 1 MiB，已截断。当前显示已保存的部分。' : 'Truncated at 1 MiB. Showing the retained portion.'}</p>}
+        {!prompt.response_state && <p className={styles.meta}>{zh ? '此记录尚未保存本次回复（可能仍在生成或产生于升级前）。' : 'Response not saved yet (in progress or predates this update).'}</p>}
+        {prompt.response_state && prompt.response_state !== 'complete' && <p className={styles.notice}>{zh ? `本次回复状态：${({ interrupted: '连接中断', incomplete: '未收到结束标记', truncated: '超过大小限制', error: '请求失败' } as Record<string, string>)[prompt.response_state] || prompt.response_state}，显示已捕获的部分。` : `Response ${prompt.response_state}: showing retained content.`}</p>}
         {!raw && !view.parsed && <p className={styles.meta}>{zh ? '无法完整解析结构，已尽可能还原换行显示正文。' : 'Could not parse the complete structure. Showing text with decoded line breaks.'}</p>}
         <div className={styles.reader}>
-          {raw ? <pre className={styles.raw}>{view.raw}</pre> : traceMode ? <PromptTrace content={prompt.content} zh={zh} /> : <>
+          {raw ? <pre className={styles.raw}>{rawText}</pre> : traceMode ? <PromptTrace content={prompt.content} response={prompt} zh={zh} /> : <>
             {view.sections.map((section, index) => <article className={styles.card} key={index} data-role={section.role}>
               <header><span className={styles.number}>{String(index + 1).padStart(2, '0')}</span><strong>{labels[section.role] || section.role}</strong>{section.meta && <span>{section.meta}</span>}</header>
               {section.role === 'tools' ? <FoldedCode text={section.text} zh={zh} label={zh ? '工具定义' : 'Tool definitions'} />
@@ -188,6 +194,7 @@ export function RequestPrompt({ requestId, zh }: { requestId?: string; zh: boole
                   : <ReadableContent text={section.text} zh={zh} />}
               {section.toolCalls && <FoldedCode text={section.toolCalls} zh={zh} label={zh ? '工具调用参数' : 'Tool call arguments'} />}
             </article>)}
+            {prompt.response_state && <article className={styles.card} data-role="assistant"><header><strong>{zh ? '本次回复' : 'Current response'}</strong></header><ReadableContent text={responseText || (zh ? '未捕获到可展示的文本内容。' : 'No captured text output.')} zh={zh} /></article>}
             {view.parameters && <details className={styles.parameters}><summary>{zh ? '请求参数' : 'Request parameters'}</summary><pre>{view.parameters}</pre></details>}
           </>}
         </div>

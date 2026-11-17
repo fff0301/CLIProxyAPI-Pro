@@ -2420,6 +2420,7 @@ replace_all_exact(
 \t\t\t\t}
 \t\t\t}
 \t\t\tobservability.CapturePrompt(c)
+\t\t\tdefer observability.CaptureResponse(c)()
 \t\t\tmiddleware.CaptureAuthenticatedRequestBody(c)
 \t\t\tif c.IsAborted() {
 \t\t\t\treturn
